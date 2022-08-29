@@ -1,0 +1,288 @@
+rem Copyright (c) 2022 Mark Ryan
+rem SPDX-License-Identifier: Apache 2.0
+
+rem The FNdiff@RECop{} function is derived from the Linear Space Myers Diff
+rem Algorithm -  https://blog.robertelder.org/diff-algorithm/
+
+onerror
+  print "whoops"
+  print err
+enderror
+
+DELETE_CHANGE% = 0
+INSERT_CHANGE% = 1
+CHANGE_CHANGE% = 2
+
+type RECop (
+    op%
+    old%
+    new%
+    size%
+)
+
+lines1${} := FNGetLines${}("out.txt", 1024)
+lines2${} := FNGetLines${}("out1.txt", 1024)
+
+res@RECop{} := FNdiff@RECop{}(lines1${},lines2${}, 0, 0)
+PROCdump_diff(lines1${}, lines2${}, res@RECop{})
+
+def PROCdump_diff(lines1${}, lines2${}, res@RECop{})
+  range ch@RECop := res@RECop{}
+    if ch@RECop.op% = DELETE_CHANGE% then
+      end% := ch@RECop.old% + ch@RECop.size%
+      print ch@RECop.old% + 1; print ","; print end%;
+      print "d"; print ch@RECop.new%
+      range s$ := lines1${ch@RECop.old%:end%}
+        print "< "; print s$;
+      endrange  
+    else
+      if ch@RECop.op% = INSERT_CHANGE% then
+        end% := ch@RECop.new% + ch@RECop.size%
+        print ch@RECop.old%; print "a"; print ch@RECop.new% + 1; print ",";
+        print end%
+        range s$ := lines2${ch@RECop.new%:end%}
+          print "> "; print s$;
+        endrange
+      else
+        end% := ch@RECop.old% + ch@RECop.size%
+        print ch@RECop.old% + 1; print "c"; print end% + 1
+        range s$ := lines1${ch@RECop.old%:end%}
+          print "< "; print s$;
+        endrange  	
+        print "---"
+        range s$ := lines2${ch@RECop.new%:ch@RECop.new% + ch@RECop.size%}
+          print "> "; print s$;
+        endrange
+      endif
+    endif
+  endrange
+endproc
+
+def FNdiff@RECop{}(old${}, new${}, i%, j%)
+  local dim r@RECop{}
+  N% := dim(old${}, 1) + 1 
+  M% := dim(new${}, 1) + 1
+  L% := N% + M%
+  Z% := (2 * FNMin%(N%, M%)) + 2
+  if N% > 0 and M% > 0 then
+    w% := N% - M%
+    local dim g%(Z%-1)
+    local dim p%(Z%-1)
+    hlim% := (L% div 2) + (L% and 1)
+    for h% := 0 to hlim%
+      for r% := 0 to 1
+        local c%() = g%()
+	local d%() = p%()
+	local o% = 1
+	local m% = 1
+        if r% <> 0 then
+	    c%() = p%()
+	    d%() = g%()
+	    o% = 0
+	    m% = -1
+	endif
+	start% := -(h%-2*FNMax%(0, h%-M%))
+	end% := h%-2*FNMax%(0, h%-N%)
+	for k% := start% to end% step 2
+	  inc% := false
+rem          print "c[(k-1)%Z] "; print FNMod%((k%-1),Z%); print " ";print c%(FNMod%((k%-1),Z%)); print " k% ="; print k%
+rem          print "c[(k+1)%Z]";  print FNMod%((k%+1),Z%); print " "; print c%(FNMod%((k%+1),Z%)); print " k% ="; print k%
+	  if k% = -h% then
+	    inc% = true
+	  else
+	    if k% <> h% then
+	      inc% = c%(FNMod%(k%-1,Z%)) < c%(FNMod%(k%+1, Z%))
+	    endif
+	  endif
+	  local a%
+	  if inc% then
+   	    a% = c%(FNMod%(k%+1,Z%))
+	  else
+  	    a% = c%(FNMod%(k%-1,Z%))+1
+	  endif
+rem	  print "a% = "; print a%
+	  b% := a% - k%
+	  s% := a%
+	  t% := b%
+	  loop% := true
+	  while a% < N% and b% < M% and loop%
+	    loop% = old${(1-o%)*N%+m%*a%+(o%-1)} = new${(1-o%)*M%+m%*b%+(o%-1)}
+	    if loop% then
+	        a% += 1
+		b% += 1
+            endif
+	  endwhile
+rem	  print a%; print ", "; print b%
+rem	  print "Setting "; print (FNMod%(k%, Z%)) ; print " to "; print a%
+	  c%(FNMod%(k%, Z%)) = a%
+	  z% := -(k%-w%)
+	  if L% mod 2 = o% then
+	    if z% >= -(h% - o%) then
+	      if z% <= h% - o% then
+	        if c%(FNMod%(k%,Z%)) + d%(FNMod%(z%,Z%)) >= N% then
+		  local D%
+		  local x%
+		  local y%
+		  local u%
+		  local v%
+		  if o% = 1 then
+		    D% = 2 * h% -1
+		    x% = s%
+		    y% = t%
+		    u% = a%
+		    v% = b%
+		  else
+  		    D% = 2 * h%
+	    	    x% = N% - a%
+		    y% = M% - b%
+		    u% = N% - s%
+		    v% = M% - t%
+		  endif
+		  if D% > 1 or (x% <> u% and y% <> v%) then
+		    <- FNMergeChange@RECop{}(FNdiff@RECop{}(old${0:x%}, new${0:y%}, i%, j%),
+		      FNdiff@RECop{}(old${u%:N%}, new${v%:M%}, i% + u%, j% + v%))
+		  else
+		    if M% > N% then
+		      <-FNdiff@RECop{}(old${0:0}, new${N%:M%}, i% + N%, j%+N%)
+		    else
+		      if M% < N% then
+		        <-FNdiff@RECop{}(old${M%:N%}, new${0:0}, i% + M%, j%+M%)
+	              else
+		        <- r@RECop{}
+		      endif
+		    endif
+		  endif
+		endif
+	      endif
+	    endif		
+          endif
+	next
+      next
+    next
+  else
+    local a@RECop
+     if N% > 0 then
+       a@RECop = ( 0, i%, j%, N% )
+     else
+       a@RECop = ( 1, i%, j%, M% )
+     endif
+     append(r@RECop{}, a@RECop)
+  endif
+<-r@RECop{}
+
+def FNMergeChange@RECop{}(a@RECop{}, b@RECop{})
+  local b_len% = dim(b@RECop{}, 1)
+  local a_len% = dim(a@RECop{}, 1)
+  if b_len% >= 0 and a_len% >= 0 then
+
+    rem merge insertions
+    
+    if (a@RECop{a_len%}.op% = INSERT_CHANGE%) and
+        (b@RECop{0}.op% = INSERT_CHANGE%) then
+      if a@RECop{a_len%}.new% + a@RECop{a_len%}.size% = b@RECop{0}.new% then
+	   a@RECop{a_len%}.size% += b@RECop{0}.size%
+	   <-append(a@RECop{}, b@RECop{1:})
+      endif
+    endif
+
+    rem merge deletions
+
+    if (a@RECop{a_len%}.op% = DELETE_CHANGE%) and
+        (b@RECop{0}.op% = DELETE_CHANGE%) then
+      if a@RECop{a_len%}.old% + a@RECop{a_len%}.size% = b@RECop{0}.old% then
+	   a@RECop{a_len%}.size% += b@RECop{0}.size%
+	   <-append(a@RECop{}, b@RECop{1:})
+      endif
+    endif
+
+    rem check for changes
+
+    if (a@RECop{a_len%}.op% = DELETE_CHANGE%) and
+        (b@RECop{0}.op% = INSERT_CHANGE%) then
+      if (a@RECop{a_len%}.old% + 1 = b@RECop{0}.old%) and
+	   (a@RECop{a_len%}.size% = b@RECop{0}.size%) then
+	   a@RECop{a_len%}.op% = CHANGE_CHANGE%
+	   <-append(a@RECop{}, b@RECop{1:})
+      endif
+    endif
+  endif
+<- append(a@RECop{}, b@RECop{})
+
+def FNMod%(a%, b%) <- ((a% mod b%) + b%) mod b%
+	      
+
+def FNMax%(a%, b%)
+  if a% < b% then
+      <- b%
+  endif
+<-a%
+
+def FNMin%(a%, b%)
+  if a% > b% then
+      <- b%
+  endif
+<-a%
+
+def FNGetLines${}(name$, bufsize%)
+  local dim lines${}
+  h% := openin(name$)
+  onerror
+    tryone close# h%
+  enderror
+
+  local dim buffer&(bufsize% - 1)
+
+  read% := get#(h%, buffer&())
+  while read% > 0
+    lines${} = FNFillBuffer${}(lines${}, buffer&(:read%))
+    read% = get#(h%, buffer&())
+  endwhile
+
+  tryone close# h%
+<-lines${}
+
+def FNFillBuffer${}(lines${}, buffer&(1))
+    limit% := dim(buffer&(), 1) + 1
+
+    rem get the first line
+    
+    s$ := FNGetLine$(buffer&())
+
+    rem do we need to append to an existing line?
+
+    veclen% := dim(lines${}, 1)
+    existing% := false
+    if veclen% >= 0 then
+      existing% = asc(right$(lines${veclen%})) <> 10
+    endif
+
+    if existing% then
+      lines${veclen%} +=  s$
+    else
+      append(lines${}, s$)
+    endif
+   
+    start% := len(s$)
+    limit% -= start%
+    while limit% > 0
+      s$ = FNGetLine$(buffer&(start%:))
+      append(lines${}, s$)
+      limit% -= len(s$)
+      start% += len(s$)
+    endwhile
+<-lines${}
+
+def FNGetLine$(buffer&(1))
+  lstart% := 0
+  lend% := 0
+  limit% := dim(buffer&(), 1) + 1
+
+  loop% := true
+  while lend% < limit% and loop%
+    loop% = buffer&(lend%) <> 10
+    lend% += 1
+  endwhile
+
+  line$ := string$(lend% - lstart%, " ")
+  copy(line$, buffer&(lstart%:lend%))
+<- line$
