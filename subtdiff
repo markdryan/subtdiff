@@ -15,9 +15,10 @@ CHANGE_CHANGE% = 2
 
 type RECop (
     op%
-    old%
-    new%
-    size%
+    old_start%
+    old_end%
+    new_start%
+    new_end%
 )
 
 lines1${} := FNGetLines${}("out.txt", 1024)
@@ -29,28 +30,37 @@ PROCdump_diff(lines1${}, lines2${}, res@RECop{})
 def PROCdump_diff(lines1${}, lines2${}, res@RECop{})
   range ch@RECop := res@RECop{}
     if ch@RECop.op% = DELETE_CHANGE% then
-      end% := ch@RECop.old% + ch@RECop.size%
-      print ch@RECop.old% + 1; print ","; print end%;
-      print "d"; print ch@RECop.new%
-      range s$ := lines1${ch@RECop.old%:end%}
+      print ch@RECop.old_start% + 1; print ","; print ch@RECop.old_end%;
+      print "d"; print ch@RECop.new_start%
+      range s$ := lines1${ch@RECop.old_start%:ch@RECop.old_end%}
         print "< "; print s$;
       endrange  
     else
       if ch@RECop.op% = INSERT_CHANGE% then
-        end% := ch@RECop.new% + ch@RECop.size%
-        print ch@RECop.old%; print "a"; print ch@RECop.new% + 1; print ",";
-        print end%
-        range s$ := lines2${ch@RECop.new%:end%}
+        print ch@RECop.old_start%; print "a"; print ch@RECop.new_start% + 1; print ",";
+        print ch@RECop.new_end%
+        range s$ := lines2${ch@RECop.new_start%:ch@RECop.new_end%}
           print "> "; print s$;
         endrange
       else
-        end% := ch@RECop.old% + ch@RECop.size%
-        print ch@RECop.old% + 1; print "c"; print end% + 1
-        range s$ := lines1${ch@RECop.old%:end%}
+        start% := ch@RECop.old_start% + 1
+        print start%;
+	if start% < ch@RECop.old_end% then
+	  print ","; print ch@RECop.old_end%;
+	endif
+	print "c";
+	start% = ch@RECop.new_start% + 1
+        print start%;
+	if start% < ch@RECop.new_end% then
+	  print ","; print ch@RECop.new_end%;
+	endif
+	print ""
+
+        range s$ := lines1${ch@RECop.old_start%:ch@RECop.old_end%}
           print "< "; print s$;
         endrange  	
         print "---"
-        range s$ := lines2${ch@RECop.new%:ch@RECop.new% + ch@RECop.size%}
+        range s$ := lines2${ch@RECop.new_start%:ch@RECop.new_end%}
           print "> "; print s$;
         endrange
       endif
@@ -162,9 +172,9 @@ rem	  print "Setting "; print (FNMod%(k%, Z%)) ; print " to "; print a%
   else
     local a@RECop
      if N% > 0 then
-       a@RECop = ( 0, i%, j%, N% )
+       a@RECop = ( DELETE_CHANGE%, i%, i% + N%, j%, j% )
      else
-       a@RECop = ( 1, i%, j%, M% )
+       a@RECop = ( INSERT_CHANGE%, i%, i%, j%, j% + M% )
      endif
      append(r@RECop{}, a@RECop)
   endif
@@ -176,21 +186,21 @@ def FNMergeChange@RECop{}(a@RECop{}, b@RECop{})
   if b_len% >= 0 and a_len% >= 0 then
 
     rem merge insertions
-    
-    if (a@RECop{a_len%}.op% = INSERT_CHANGE%) and
+
+    if ((a@RECop{a_len%}.op% = INSERT_CHANGE%) or (a@RECop{a_len%}.op% = CHANGE_CHANGE%)) and
         (b@RECop{0}.op% = INSERT_CHANGE%) then
-      if a@RECop{a_len%}.new% + a@RECop{a_len%}.size% = b@RECop{0}.new% then
-	   a@RECop{a_len%}.size% += b@RECop{0}.size%
+      if a@RECop{a_len%}.new_end% = b@RECop{0}.new_start% then
+	   a@RECop{a_len%}.new_end% = b@RECop{0}.new_end%
 	   <-append(a@RECop{}, b@RECop{1:})
       endif
     endif
 
     rem merge deletions
 
-    if (a@RECop{a_len%}.op% = DELETE_CHANGE%) and
+    if ((a@RECop{a_len%}.op% = DELETE_CHANGE%) or (a@RECop{a_len%}.op% = CHANGE_CHANGE%)) and
         (b@RECop{0}.op% = DELETE_CHANGE%) then
-      if a@RECop{a_len%}.old% + a@RECop{a_len%}.size% = b@RECop{0}.old% then
-	   a@RECop{a_len%}.size% += b@RECop{0}.size%
+      if a@RECop{a_len%}.old_end% = b@RECop{0}.old_start% then
+	   a@RECop{a_len%}.old_end% = b@RECop{0}.old_end%
 	   <-append(a@RECop{}, b@RECop{1:})
       endif
     endif
@@ -199,9 +209,18 @@ def FNMergeChange@RECop{}(a@RECop{}, b@RECop{})
 
     if (a@RECop{a_len%}.op% = DELETE_CHANGE%) and
         (b@RECop{0}.op% = INSERT_CHANGE%) then
-      if (a@RECop{a_len%}.old% + 1 = b@RECop{0}.old%) and
-	   (a@RECop{a_len%}.size% = b@RECop{0}.size%) then
 	   a@RECop{a_len%}.op% = CHANGE_CHANGE%
+	   a@RECop{a_len%}.new_start% = b@RECop{0}.new_start%
+	   a@RECop{a_len%}.new_end% = b@RECop{0}.new_end%
+	   <-append(a@RECop{}, b@RECop{1:})
+    endif
+
+    if (a@RECop{a_len%}.op% = CHANGE_CHANGE%) and
+        (b@RECop{0}.op% = CHANGE_CHANGE%) then
+      if (a@RECop{a_len%}.old_end% = b@RECop{0}.old_start%) and
+         (a@RECop{a_len%}.new_end% = b@RECop{0}.new_start%) then
+	   a@RECop{a_len%}.old_end% = b@RECop{0}.old_end%
+	   a@RECop{a_len%}.new_end% = b@RECop{0}.new_end%
 	   <-append(a@RECop{}, b@RECop{1:})
       endif
     endif
