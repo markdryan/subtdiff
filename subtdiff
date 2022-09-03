@@ -25,6 +25,7 @@ lines1${} := FNGetLines${}("out.txt", 1024)
 lines2${} := FNGetLines${}("out1.txt", 1024)
 
 res@RECop{} := FNdiff@RECop{}(lines1${},lines2${}, 0, 0)
+res@RECop{} = FNSquashDiffs@RECop{}(res@RECop{})
 PROCdump_diff(lines1${}, lines2${}, res@RECop{})
 
 def PROCdump_diff(lines1${}, lines2${}, res@RECop{})
@@ -149,7 +150,7 @@ rem	  print "Setting "; print (FNMod%(k%, Z%)) ; print " to "; print a%
 		    v% = M% - t%
 		  endif
 		  if D% > 1 or (x% <> u% and y% <> v%) then
-		    <- FNMergeChange@RECop{}(FNdiff@RECop{}(old${0:x%}, new${0:y%}, i%, j%),
+		    <- append(FNdiff@RECop{}(old${0:x%}, new${0:y%}, i%, j%),
 		      FNdiff@RECop{}(old${u%:N%}, new${v%:M%}, i% + u%, j% + v%))
 		  else
 		    if M% > N% then
@@ -157,8 +158,6 @@ rem	  print "Setting "; print (FNMod%(k%, Z%)) ; print " to "; print a%
 		    else
 		      if M% < N% then
 		        <-FNdiff@RECop{}(old${M%:N%}, new${0:0}, i% + M%, j%+M%)
-	              else
-		        <- r@RECop{}
 		      endif
 		    endif
 		  endif
@@ -174,58 +173,104 @@ rem	  print "Setting "; print (FNMod%(k%, Z%)) ; print " to "; print a%
      if N% > 0 then
        a@RECop = ( DELETE_CHANGE%, i%, i% + N%, j%, j% )
      else
-       a@RECop = ( INSERT_CHANGE%, i%, i%, j%, j% + M% )
+       if M% > 0 then
+         a@RECop = ( INSERT_CHANGE%, i%, i%, j%, j% + M% )
+       else
+         <-r@RECop{}
+       endif
      endif
      append(r@RECop{}, a@RECop)
   endif
 <-r@RECop{}
 
-def FNMergeChange@RECop{}(a@RECop{}, b@RECop{})
-  local b_len% = dim(b@RECop{}, 1)
+def FNSquashDiffs@RECop{}(a@RECop{})
   local a_len% = dim(a@RECop{}, 1)
-  if b_len% >= 0 and a_len% >= 0 then
 
-    rem merge insertions
+  if a_len% < 0 then
+    <-a@RECop{}
+  endif
 
-    if ((a@RECop{a_len%}.op% = INSERT_CHANGE%) or (a@RECop{a_len%}.op% = CHANGE_CHANGE%)) and
-        (b@RECop{0}.op% = INSERT_CHANGE%) then
-      if a@RECop{a_len%}.new_end% = b@RECop{0}.new_start% then
-	   a@RECop{a_len%}.new_end% = b@RECop{0}.new_end%
-	   <-append(a@RECop{}, b@RECop{1:})
-      endif
+  print a@RECop{0}.op% ; print " "; print a@RECop{0}.old_start% ; print " "; print a@RECop{0}.old_end%; print " ";
+  print a@RECop{0}.new_start% ; print " "; print a@RECop{0}.new_end%
+
+
+  local dim b@RECop{}
+  append(b@RECop{}, a@RECop{0})
+  range c@RECop := a@RECop{1:}
+  print c@RECop.op% ; print " "; print c@RECop.old_start% ; print " "; print c@RECop.old_end%; print " ";
+  print c@RECop.new_start% ; print " "; print c@RECop.new_end%
+  
+  
+    if not FNMergeSingle%(b@RECop{}, c@RECop) then
+      append(b@RECop{}, c@RECop)
     endif
+  endrange
+<- b@RECop{}
 
-    rem merge deletions
 
-    if ((a@RECop{a_len%}.op% = DELETE_CHANGE%) or (a@RECop{a_len%}.op% = CHANGE_CHANGE%)) and
-        (b@RECop{0}.op% = DELETE_CHANGE%) then
-      if a@RECop{a_len%}.old_end% = b@RECop{0}.old_start% then
-	   a@RECop{a_len%}.old_end% = b@RECop{0}.old_end%
-	   <-append(a@RECop{}, b@RECop{1:})
-      endif
-    endif
+def FNMergeSingle%(a@RECop{}, b@RECop)
 
-    rem check for changes
+  local a_len% = dim(a@RECop{}, 1)
 
-    if (a@RECop{a_len%}.op% = DELETE_CHANGE%) and
-        (b@RECop{0}.op% = INSERT_CHANGE%) then
-	   a@RECop{a_len%}.op% = CHANGE_CHANGE%
-	   a@RECop{a_len%}.new_start% = b@RECop{0}.new_start%
-	   a@RECop{a_len%}.new_end% = b@RECop{0}.new_end%
-	   <-append(a@RECop{}, b@RECop{1:})
-    endif
+  rem merge insertions
 
-    if (a@RECop{a_len%}.op% = CHANGE_CHANGE%) and
-        (b@RECop{0}.op% = CHANGE_CHANGE%) then
-      if (a@RECop{a_len%}.old_end% = b@RECop{0}.old_start%) and
-         (a@RECop{a_len%}.new_end% = b@RECop{0}.new_start%) then
-	   a@RECop{a_len%}.old_end% = b@RECop{0}.old_end%
-	   a@RECop{a_len%}.new_end% = b@RECop{0}.new_end%
-	   <-append(a@RECop{}, b@RECop{1:})
-      endif
+  if ((a@RECop{a_len%}.op% = INSERT_CHANGE%) or (a@RECop{a_len%}.op% = CHANGE_CHANGE%)) and
+      (b@RECop.op% = INSERT_CHANGE%) then
+    if a@RECop{a_len%}.new_end% = b@RECop.new_start% then
+       a@RECop{a_len%}.new_end% = b@RECop.new_end%
+       <-true
     endif
   endif
-<- append(a@RECop{}, b@RECop{})
+
+  rem merge deletions
+
+  if ((a@RECop{a_len%}.op% = DELETE_CHANGE%) or (a@RECop{a_len%}.op% = CHANGE_CHANGE%)) and
+      (b@RECop.op% = DELETE_CHANGE%) then
+    if a@RECop{a_len%}.old_end%  >= b@RECop.old_start% then
+       a@RECop{a_len%}.old_end% = b@RECop.old_end%
+       <-true
+    endif
+  endif
+
+  rem check for changes
+
+  if (a@RECop{a_len%}.op% = DELETE_CHANGE%) and
+     (b@RECop.op% = INSERT_CHANGE%) then
+     if a@RECop{a_len%}.old_end% = b@RECop.old_start% then
+       a@RECop{a_len%}.op% = CHANGE_CHANGE%
+       a@RECop{a_len%}.new_start% = b@RECop.new_start%
+       a@RECop{a_len%}.new_end% = b@RECop.new_end%
+       <-true
+     endif
+   endif
+
+  if (a@RECop{a_len%}.op% = INSERT_CHANGE%) and
+     (b@RECop.op% = DELETE_CHANGE%) then
+     if a@RECop{a_len%}.old_start% = b@RECop.old_start% then
+rem        print a@RECop{a_len%}.op% ; print " "; print a@RECop{a_len%}.old_start% ; print " "; print a@RECop{a_len%}.old_end%; print " ";
+rem	print a@RECop{a_len%}.new_start% ; print " "; print a@RECop{a_len%}.new_end%
+rem        print b@RECop.old_start% ; print " "; print b@RECop.old_end%; print " ";
+rem	print b@RECop.new_start% ; print " "; print b@RECop.new_end%
+
+	a@RECop{a_len%}.op% = CHANGE_CHANGE%
+        a@RECop{a_len%}.old_end% = b@RECop.old_end%
+	a@RECop{a_len%}.new_end% = b@RECop.new_end%
+        <-true
+    endif
+  endif
+
+
+  if (a@RECop{a_len%}.op% = CHANGE_CHANGE%) and
+     (b@RECop.op% = CHANGE_CHANGE%) then
+    if (a@RECop{a_len%}.old_end% = b@RECop.old_start%) and
+       (a@RECop{a_len%}.new_end% = b@RECop.new_start%) then
+      a@RECop{a_len%}.old_end% = b@RECop.old_end%
+      a@RECop{a_len%}.new_end% = b@RECop.new_end%
+      <-true
+    endif
+  endif
+
+<-false
 
 def FNMod%(a%, b%) <- ((a% mod b%) + b%) mod b%
 	      
