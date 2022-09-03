@@ -190,17 +190,9 @@ def FNSquashDiffs@RECop{}(a@RECop{})
     <-a@RECop{}
   endif
 
-  print a@RECop{0}.op% ; print " "; print a@RECop{0}.old_start% ; print " "; print a@RECop{0}.old_end%; print " ";
-  print a@RECop{0}.new_start% ; print " "; print a@RECop{0}.new_end%
-
-
   local dim b@RECop{}
   append(b@RECop{}, a@RECop{0})
   range c@RECop := a@RECop{1:}
-  print c@RECop.op% ; print " "; print c@RECop.old_start% ; print " "; print c@RECop.old_end%; print " ";
-  print c@RECop.new_start% ; print " "; print c@RECop.new_end%
-  
-  
     if not FNMergeSingle%(b@RECop{}, c@RECop) then
       append(b@RECop{}, c@RECop)
     endif
@@ -247,11 +239,6 @@ def FNMergeSingle%(a@RECop{}, b@RECop)
   if (a@RECop{a_len%}.op% = INSERT_CHANGE%) and
      (b@RECop.op% = DELETE_CHANGE%) then
      if a@RECop{a_len%}.old_start% = b@RECop.old_start% then
-rem        print a@RECop{a_len%}.op% ; print " "; print a@RECop{a_len%}.old_start% ; print " "; print a@RECop{a_len%}.old_end%; print " ";
-rem	print a@RECop{a_len%}.new_start% ; print " "; print a@RECop{a_len%}.new_end%
-rem        print b@RECop.old_start% ; print " "; print b@RECop.old_end%; print " ";
-rem	print b@RECop.new_start% ; print " "; print b@RECop.new_end%
-
 	a@RECop{a_len%}.op% = CHANGE_CHANGE%
         a@RECop{a_len%}.old_end% = b@RECop.old_end%
 	a@RECop{a_len%}.new_end% = b@RECop.new_end%
