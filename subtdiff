@@ -41,14 +41,14 @@ def PROCdump_diff(lines1${}, lines2${}, res@RECop{})
       print ch@RECop.old_start% + 1; print ","; print ch@RECop.old_end%;
       print "d"; print ch@RECop.new_start%
       range s$ := lines1${ch@RECop.old_start%:ch@RECop.old_end%}
-        print "< "; print s$;
-      endrange  
+        print "< "; PROCprint_line(s$)
+      endrange
     else
       if ch@RECop.op% = INSERT_CHANGE% then
         print ch@RECop.old_start%; print "a"; print ch@RECop.new_start% + 1; print ",";
         print ch@RECop.new_end%
         range s$ := lines2${ch@RECop.new_start%:ch@RECop.new_end%}
-          print "> "; print s$;
+          print "> "; PROCprint_line(s$)
         endrange
       else
         start% := ch@RECop.old_start% + 1
@@ -65,15 +65,24 @@ def PROCdump_diff(lines1${}, lines2${}, res@RECop{})
 	print ""
 
         range s$ := lines1${ch@RECop.old_start%:ch@RECop.old_end%}
-          print "< "; print s$;
+          print "< "; PROCprint_line(s$)
         endrange
         print "---"
         range s$ := lines2${ch@RECop.new_start%:ch@RECop.new_end%}
-          print "> "; print s$;
+          print "> "; PROCprint_line(s$)
         endrange
       endif
     endif
   endrange
+endproc
+
+def PROCprint_line(s$)
+  local strip% = 1
+  l% := len(s$)
+  if right$(s$,2) = chr$(13)+chr$(10) then
+    strip% = 2
+  endif
+  print left$(s$,l% - strip%)
 endproc
 
 def FNdiff@RECop{}(old${}, new${}, i%, j%)
