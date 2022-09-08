@@ -4,11 +4,6 @@ rem SPDX-License-Identifier: Apache 2.0
 rem The FNdiff@RECop{} function is derived from the Linear Space Myers Diff
 rem Algorithm -  https://blog.robertelder.org/diff-algorithm/
 
-onerror
-  print "whoops"
-  print err
-enderror
-
 DELETE_CHANGE% = 0
 INSERT_CHANGE% = 1
 CHANGE_CHANGE% = 2
@@ -21,8 +16,20 @@ type RECop (
     new_end%
 )
 
-lines1${} := FNGetLines${}("out.txt", 1024)
-lines2${} := FNGetLines${}("out1.txt", 1024)
+type RECflags (
+   version%
+   left_file$
+   right_file$
+)
+
+flags@RECflags = FNFlags@RECflags
+if flags@RECflags.version% then
+  print "subtdiff version 1"
+  end
+endif
+
+lines1${} := FNGetLines${}(flags@RECflags.left_file$, 1024)
+lines2${} := FNGetLines${}(flags@RECflags.right_file$, 1024)
 
 res@RECop{} := FNdiff@RECop{}(lines1${},lines2${}, 0, 0)
 res@RECop{} = FNSquashDiffs@RECop{}(res@RECop{})
@@ -34,14 +41,14 @@ def PROCdump_diff(lines1${}, lines2${}, res@RECop{})
       print ch@RECop.old_start% + 1; print ","; print ch@RECop.old_end%;
       print "d"; print ch@RECop.new_start%
       range s$ := lines1${ch@RECop.old_start%:ch@RECop.old_end%}
-        print "< "; print s$;
-      endrange  
+        print "< "; PROCprint_line(s$)
+      endrange
     else
       if ch@RECop.op% = INSERT_CHANGE% then
         print ch@RECop.old_start%; print "a"; print ch@RECop.new_start% + 1; print ",";
         print ch@RECop.new_end%
         range s$ := lines2${ch@RECop.new_start%:ch@RECop.new_end%}
-          print "> "; print s$;
+          print "> "; PROCprint_line(s$)
         endrange
       else
         start% := ch@RECop.old_start% + 1
@@ -58,15 +65,24 @@ def PROCdump_diff(lines1${}, lines2${}, res@RECop{})
 	print ""
 
         range s$ := lines1${ch@RECop.old_start%:ch@RECop.old_end%}
-          print "< "; print s$;
-        endrange  	
+          print "< "; PROCprint_line(s$)
+        endrange
         print "---"
         range s$ := lines2${ch@RECop.new_start%:ch@RECop.new_end%}
-          print "> "; print s$;
+          print "> "; PROCprint_line(s$)
         endrange
       endif
     endif
   endrange
+endproc
+
+def PROCprint_line(s$)
+  local strip% = 1
+  l% := len(s$)
+  if right$(s$,2) = chr$(13)+chr$(10) then
+    strip% = 2
+  endif
+  print left$(s$,l% - strip%)
 endproc
 
 def FNdiff@RECop{}(old${}, new${}, i%, j%)
@@ -107,9 +123,9 @@ rem          print "c[(k+1)%Z]";  print FNMod%((k%+1),Z%); print " "; print c%(F
 	  endif
 	  local a%
 	  if inc% then
-   	    a% = c%(FNMod%(k%+1,Z%))
+	    a% = c%(FNMod%(k%+1,Z%))
 	  else
-  	    a% = c%(FNMod%(k%-1,Z%))+1
+	    a% = c%(FNMod%(k%-1,Z%))+1
 	  endif
 rem	  print "a% = "; print a%
 	  b% := a% - k%
@@ -143,8 +159,8 @@ rem	  print "Setting "; print (FNMod%(k%, Z%)) ; print " to "; print a%
 		    u% = a%
 		    v% = b%
 		  else
-  		    D% = 2 * h%
-	    	    x% = N% - a%
+		    D% = 2 * h%
+		    x% = N% - a%
 		    y% = M% - b%
 		    u% = N% - s%
 		    v% = M% - t%
@@ -163,7 +179,7 @@ rem	  print "Setting "; print (FNMod%(k%, Z%)) ; print " to "; print a%
 		  endif
 		endif
 	      endif
-	    endif		
+	    endif
           endif
 	next
       next
@@ -260,7 +276,6 @@ def FNMergeSingle%(a@RECop{}, b@RECop)
 <-false
 
 def FNMod%(a%, b%) <- ((a% mod b%) + b%) mod b%
-	      
 
 def FNMax%(a%, b%)
   if a% < b% then
@@ -276,8 +291,15 @@ def FNMin%(a%, b%)
 
 def FNGetLines${}(name$, bufsize%)
   local dim lines${}
-  h% := openin(name$)
+  local h%
+  err% := tryone h% = openin(name$)
+  if err% then
+    print "Unable to open "; print name$
+    error err%
+  endif
+
   onerror
+    tryone print "error reading from "; print name$
     tryone close# h%
   enderror
 
@@ -296,7 +318,7 @@ def FNFillBuffer${}(lines${}, buffer&(1))
     limit% := dim(buffer&(), 1) + 1
 
     rem get the first line
-    
+
     s$ := FNGetLine$(buffer&())
 
     rem do we need to append to an existing line?
@@ -308,11 +330,11 @@ def FNFillBuffer${}(lines${}, buffer&(1))
     endif
 
     if existing% then
-      lines${veclen%} +=  s$
+      lines${veclen%} += s$
     else
       append(lines${}, s$)
     endif
-   
+
     start% := len(s$)
     limit% -= start%
     while limit% > 0
@@ -337,3 +359,83 @@ def FNGetLine$(buffer&(1))
   line$ := string$(lend% - lstart%, " ")
   copy(line$, buffer&(lstart%:lend%))
 <- line$
+
+type FNComp%(a&)
+
+def FNSkip%(a&(1), start%, l%, cmp@FNComp)
+  stop% := false
+  repeat
+    if start% < l% then
+      stop% = cmp@FNComp(a&(start%))
+      if not stop% then
+        start% += 1
+      endif
+    else
+      stop% = true
+    endif
+  until stop%
+<-start%
+
+def FNSkipWhite%(a&(1), start%, l%)
+<-FNSkip%(a&(), start%, l%, def FN%(a&) <- a& <> asc(" "))
+
+def FNSkipNonWhite%(a&(1), start%, l%)
+<-FNSkip%(a&(), start%, l%, def FN%(a&) <- a& = asc(" "))
+
+def FNFlags@RECflags
+    local f@RECflags
+
+    args${} := FNGetArgs${}
+
+    rem let's read the options
+
+    local dim fnames${}
+
+    range s$ := args${1:}
+      if s$ = "-v" then
+        f@RECflags.version% = true
+      else
+        append(fnames${}, s$)
+      endif
+    endrange
+
+    if f@RECflags.version% then
+      <-f@RECflags
+    endif
+
+    if dim(fnames${}, 1) <> 1 then
+      print "usage: left right"
+      print "usage: -v (version)"
+      error 1000
+    endif
+
+    f@RECflags.left_file$ = fnames${0}
+    f@RECflags.right_file$ = fnames${1}
+<-f@RECflags
+
+def FNGetArgs${}
+  local dim args${}
+
+  list$ := osargs$
+  l% := len(list$)
+  if l% = 0 then
+    <-args${}
+  endif
+
+  local dim a&(l% - 1)
+  copy(a&(), list$)
+
+  end% := 0
+  start% := 0
+  while start% < l%
+    start% = FNSkipWhite%(a&(), start%, l%)
+    end% = FNSkipNonWhite%(a&(), start%, l%)
+    if start% = end% then
+      start% = l%
+    else
+      append(args${}, mid$(list$,start%+1,end%-start%))
+      start% = end% + 1
+    endif
+  endwhile
+
+<-args${}
