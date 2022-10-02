@@ -3,10 +3,17 @@ rem SPDX-License-Identifier: Apache 2.0
 
 rem The FNdiff@RECop{} function is derived from the Linear Space Myers Diff
 rem Algorithm -  https://blog.robertelder.org/diff-algorithm/
+rem 
+rem The BASIC decoder is Derived from the python code found here:
+rem  https://gitlab.riscosopen.org/Support/RepoTools/-/blob/master/BBCBasicToText.py
 
 DELETE_CHANGE% = 0
 INSERT_CHANGE% = 1
 CHANGE_CHANGE% = 2
+
+rem errors
+
+BAD_BASIC_FILE% = 1000
 
 type RECop (
     op%
@@ -22,33 +29,72 @@ type RECflags (
    right_file$
 )
 
+type REClines (
+  dim nums%{}
+  dim code${}
+)
+
+dim tokens$(128)
+tokens$() =
+  "OTHERWISE", "AND", "DIV", "EOR", "MOD", "OR", "ERROR", "LINE", "OFF",
+  "STEP", "SPC", "TAB(", "ELSE", "THEN", "", "OPENIN", "PTR", "PAGE",
+  "TIME", "LOMEM", "HIMEM", "ABS", "ACS", "ADVAL", "ASC", "ASN", "ATN",
+  "BGET", "COS", "COUNT", "DEG", "ERL", "ERR", "EVAL", "EXP", "EXT",
+  "FALSE", "FN", "GET", "INKEY", "INSTR(", "INT", "LEN", "LN", "LOG",
+  "NOT", "OPENUP", "OPENOUT", "PI", "POINT(", "POS", "RAD", "RND",
+  "SGN", "SIN", "SQR", "TAN", "TO", "TRUE", "USR", "VAL", "VPOS", "CHR$",
+  "GET$", "INKEY$", "LEFT$(", "MID$(", "RIGHT$(", "STR$", "STRING$(", "EOF",
+  "", "", "", "WHEN", "OF", "ENDCASE", "ELSE",
+  "ENDIF", "ENDWHILE", "PTR", "PAGE", "TIME", "LOMEM", "HIMEM", "SOUND",
+  "BPUT", "CALL", "CHAIN", "CLEAR", "CLOSE", "CLG", "CLS", "DATA", "DEF",
+  "DIM", "DRAW", "END", "ENDPROC", "ENVELOPE", "FOR", "GOSUB", "GOTO", "GCOL",
+  "IF", "INPUT", "LET", "LOCAL", "MODE", "MOVE", "NEXT", "ON", "VDU",
+  "PLOT", "PRINT", "PROC", "READ", "REM", "REPEAT", "REPORT", "RESTORE",
+  "RETURN", "RUN", "STOP", "COLOUR", "TRACE", "UNTIL", "WIDTH", "OSCLI"
+
+dim stmt_tokens$(21)
+stmt_tokens$() =
+  "CASE", "CIRCLE", "FILL", "ORIGIN", "PSET", "RECT", "SWAP", "WHILE",
+  "WAIT", "MOUSE", "QUIT", "SYS", "INSTALL", "LIBRARY", "TINT", "ELLIPSE",
+  "BEATS", "TEMPO", "VOICES", "VOICE", "STEREO", "OVERLAY"
+
+dim com_tokens$(17)
+com_tokens$() =
+  "APPEND", "AUTO", "CRUNCH", "DELETE", "EDIT", "HELP", "LIST", "LOAD",
+  "LVAR", "NEW", "OLD", "RENUMBER", "SAVE", "TEXTLOAD", "TEXTSAVE", "TWIN",
+  "TWINO", "INSTALL"
+
+dim cnf_tokens$(1)
+cnf_tokens$() = "SUM", "BEAT"
+
+
 flags@RECflags = FNFlags@RECflags
 if flags@RECflags.version% then
-  print "subtdiff version 1"
+  print "sb2diff version 1"
   end
 endif
 
-lines1${} := FNGetLines${}(flags@RECflags.left_file$, 1024)
-lines2${} := FNGetLines${}(flags@RECflags.right_file$, 1024)
-
-res@RECop{} := FNdiff@RECop{}(lines1${},lines2${}, 0, 0)
+lines1@REClines := FNReadAndParseFile@REClines(flags@RECflags.left_file$)
+lines2@REClines := FNReadAndParseFile@REClines(flags@RECflags.right_file$)
+res@RECop{} := FNdiff@RECop{}(lines1@REClines.code${},lines2@REClines.code${}, 0, 0)
 res@RECop{} = FNSquashDiffs@RECop{}(res@RECop{})
-PROCdump_diff(lines1${}, lines2${}, res@RECop{})
+PROCdump_diff(lines1@REClines, lines2@REClines, res@RECop{})
 
-def PROCdump_diff(lines1${}, lines2${}, res@RECop{})
+def PROCdump_diff(lines1@REClines, lines2@REClines, res@RECop{})
+
   range ch@RECop := res@RECop{}
     if ch@RECop.op% = DELETE_CHANGE% then
       print ch@RECop.old_start% + 1; print ","; print ch@RECop.old_end%;
       print "d"; print ch@RECop.new_start%
-      range s$ := lines1${ch@RECop.old_start%:ch@RECop.old_end%}
-        print "< "; PROCprint_line(s$)
+      range s$, i% := lines1@REClines.code${ch@RECop.old_start%:ch@RECop.old_end%}
+        print "< "; print lines1@REClines.nums%{ch@RECop.old_start%+i%}; print " "; PROCprint_line(s$)
       endrange
     else
       if ch@RECop.op% = INSERT_CHANGE% then
         print ch@RECop.old_start%; print "a"; print ch@RECop.new_start% + 1; print ",";
         print ch@RECop.new_end%
-        range s$ := lines2${ch@RECop.new_start%:ch@RECop.new_end%}
-          print "> "; PROCprint_line(s$)
+        range s$, i% := lines2@REClines.code${ch@RECop.new_start%:ch@RECop.new_end%}
+          print "> "; print lines2@REClines.nums%{ch@RECop.new_start% + i%}; print " "; PROCprint_line(s$)
         endrange
       else
         start% := ch@RECop.old_start% + 1
@@ -64,12 +110,12 @@ def PROCdump_diff(lines1${}, lines2${}, res@RECop{})
 	endif
 	print ""
 
-        range s$ := lines1${ch@RECop.old_start%:ch@RECop.old_end%}
-          print "< "; PROCprint_line(s$)
+        range s$, i% := lines1@REClines.code${ch@RECop.old_start%:ch@RECop.old_end%}
+          print "< "; print lines1@REClines.nums%{ch@RECop.old_start%+i%}; print " "; PROCprint_line(s$)
         endrange
         print "---"
-        range s$ := lines2${ch@RECop.new_start%:ch@RECop.new_end%}
-          print "> "; PROCprint_line(s$)
+        range s$, i% := lines2@REClines.code${ch@RECop.new_start%:ch@RECop.new_end%}
+          print "> "; print lines2@REClines.nums%{ch@RECop.new_start% + i%}; print " "; PROCprint_line(s$)
         endrange
       endif
     endif
@@ -112,8 +158,6 @@ def FNdiff@RECop{}(old${}, new${}, i%, j%)
 	end% := h%-2*FNMax%(0, h%-N%)
 	for k% := start% to end% step 2
 	  inc% := false
-rem          print "c[(k-1)%Z] "; print FNMod%((k%-1),Z%); print " ";print c%(FNMod%((k%-1),Z%)); print " k% ="; print k%
-rem          print "c[(k+1)%Z]";  print FNMod%((k%+1),Z%); print " "; print c%(FNMod%((k%+1),Z%)); print " k% ="; print k%
 	  if k% = -h% then
 	    inc% = true
 	  else
@@ -127,7 +171,6 @@ rem          print "c[(k+1)%Z]";  print FNMod%((k%+1),Z%); print " "; print c%(F
 	  else
 	    a% = c%(FNMod%(k%-1,Z%))+1
 	  endif
-rem	  print "a% = "; print a%
 	  b% := a% - k%
 	  s% := a%
 	  t% := b%
@@ -139,8 +182,6 @@ rem	  print "a% = "; print a%
 		b% += 1
             endif
 	  endwhile
-rem	  print a%; print ", "; print b%
-rem	  print "Setting "; print (FNMod%(k%, Z%)) ; print " to "; print a%
 	  c%(FNMod%(k%, Z%)) = a%
 	  z% := -(k%-w%)
 	  if L% mod 2 = o% then
@@ -207,7 +248,7 @@ def FNSquashDiffs@RECop{}(a@RECop{})
   endif
 
   local dim b@RECop{}
-  append(b@RECop{}, a@RECop{0})
+  append(b@RECop{}, a@RECop{0}, 16)
   range c@RECop := a@RECop{1:}
     if not FNMergeSingle%(b@RECop{}, c@RECop) then
       append(b@RECop{}, c@RECop)
@@ -289,76 +330,126 @@ def FNMin%(a%, b%)
   endif
 <-a%
 
-def FNGetLines${}(name$, bufsize%)
-  local dim lines${}
-  local h%
-  err% := tryone h% = openin(name$)
+def FNReadAndParseFile@REClines(fname$)
+  data&{} := FNReadFile&{}(fname$)
+  onerror
+    if err = BAD_BASIC_FILE% then
+      tryone print "Not a valid BASIC file"
+    else
+      tryone print "Unknown error "; print err
+    endif
+  enderror
+<-FNParseFile@REClines(data&{})
+
+def FNParseFile@REClines(data&{})
+  local a@REClines
+  local quit%
+  local i%
+  local len% = dim(data&{}, 1) + 1
+  local gran% = len% div 32
+
+  repeat
+    if len% < 2 then
+      error BAD_BASIC_FILE%
+    endif
+
+    if data&{i%} <> 13 then
+      error BAD_BASIC_FILE%
+    endif
+    i% += 1
+    len% -= 1
+
+    quit% = intz(data&{i%}) = &ff
+    if len% < 3 then
+      error BAD_BASIC_FILE%
+    endif
+    if not quit% then
+      line% := (intz(data&{i%}) << 8) or intz(data&{i%+1})
+      i% += 2
+      linelen% := (intz(data&{i%}) - 3)
+      if len% < linelen% then
+        error BAD_BASIC_FILE%
+      endif
+      decoded$ := FNDecodeLine$(data&{i% + 1: i% + 1 + linelen%})
+      append(a@REClines.nums%{}, line%, gran%)
+      append(a@REClines.code${}, decoded$, gran%)
+      gran% = 1
+      i% += linelen%
+      len% -= linelen%
+    endif
+  until quit%
+<-a@REClines
+
+def FNDecodeLine$(data&{})
+  local s$
+  local i%
+
+  while i% <= dim(data&{}, 1)
+    tok% := intz(data&{i%})
+    if tok% < 128 then
+      s$ += chr$(tok%)
+    else
+      if tok% >= &c6 and tok% <= &c8 then
+        if i% = dim(data&{}, 1) then
+          error BAD_BASIC_FILE%
+        endif
+        tarray$() :=  tokens$()
+        nexttok% := intz(data&{i%+1}) - &8e
+        if tok% = &c8 then
+          s$ += stmt_tokens$(nexttok%)
+        else
+          if tok% = &c7 then
+            s$ += com_tokens$(nexttok%)
+          else
+            s$ += cnf_tokens$(nexttok%)
+          endif
+        endif
+        s$ += " "
+        i% += 1
+      else
+        if tok% = &8d then
+          if i% + 3 >= dim(data&{}, 1) then
+            error BAD_BASIC_FILE%
+          endif
+          s$ += FNParseLineNo$(intz(data&{i%+1}), intz(data&{i%+2}),
+                  intz(data&{i%+3}))
+          i% += 3
+        else
+          s$ += tokens$(tok% - 127)
+        endif
+      endif
+    endif
+    i% += 1
+  endwhile
+<-s$
+
+def FNParseLineNo$(a%, b%, c%)
+  a% = (a%*4) and &ff
+  b% = b% eor (a% and &c0)
+  a% = (a% * 4) and &ff
+  c% = c% eor a%
+<-str$((c% * 256) + b%)
+
+def FNReadFile&{}(fname$)
+  local f%
+  err% := tryone f% = openin(fname$)
   if err% then
-    print "Unable to open "; print name$
+    print "unable to open "; print fname$
     error err%
   endif
 
   onerror
-    tryone print "error reading from "; print name$
-    tryone close# h%
+    try
+      print "unable to read from "; print fname$
+    endtry
+    tryone close# f%
   enderror
+  len% := ext#(f%)
+  local dim a&{len% - 1}
+  read% := get#(f%, a&{})
+  tryone close# f%
+<- a&{}
 
-  local dim buffer&(bufsize% - 1)
-
-  read% := get#(h%, buffer&())
-  while read% > 0
-    lines${} = FNFillBuffer${}(lines${}, buffer&(:read%))
-    read% = get#(h%, buffer&())
-  endwhile
-
-  tryone close# h%
-<-lines${}
-
-def FNFillBuffer${}(lines${}, buffer&(1))
-    limit% := dim(buffer&(), 1) + 1
-
-    rem get the first line
-
-    s$ := FNGetLine$(buffer&())
-
-    rem do we need to append to an existing line?
-
-    veclen% := dim(lines${}, 1)
-    existing% := false
-    if veclen% >= 0 then
-      existing% = asc(right$(lines${veclen%})) <> 10
-    endif
-
-    if existing% then
-      lines${veclen%} += s$
-    else
-      append(lines${}, s$, 64)
-    endif
-
-    start% := len(s$)
-    limit% -= start%
-    while limit% > 0
-      s$ = FNGetLine$(buffer&(start%:))
-      append(lines${}, s$, 64)
-      limit% -= len(s$)
-      start% += len(s$)
-    endwhile
-<-lines${}
-
-def FNGetLine$(buffer&(1))
-  lstart% := 0
-  lend% := 0
-  limit% := dim(buffer&(), 1) + 1
-
-  loop% := true
-  while lend% < limit% and loop%
-    loop% = buffer&(lend%) <> 10
-    lend% += 1
-  endwhile
-
-  line$ := string$(lend% - lstart%, " ")
-  copy(line$, buffer&(lstart%:lend%))
-<- line$
 
 type FNComp%(a&)
 
