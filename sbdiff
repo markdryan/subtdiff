@@ -1,0 +1,532 @@
+rem Copyright (c) 2022 Mark Ryan
+rem SPDX-License-Identifier: Apache 2.0
+
+rem The FNdiff@RECop{} function is derived from the Linear Space Myers Diff
+rem Algorithm -  https://blog.robertelder.org/diff-algorithm/
+rem 
+rem The BASIC decoder is Derived from the python code found here:
+rem  https://gitlab.riscosopen.org/Support/RepoTools/-/blob/master/BBCBasicToText.py
+
+DELETE_CHANGE% = 0
+INSERT_CHANGE% = 1
+CHANGE_CHANGE% = 2
+
+rem errors
+
+BAD_BASIC_FILE% = 1000
+
+type RECop (
+    op%
+    old_start%
+    old_end%
+    new_start%
+    new_end%
+)
+
+type RECflags (
+   version%
+   left_file$
+   right_file$
+)
+
+type REClines (
+  dim nums%{}
+  dim code${}
+)
+
+dim tokens$(128)
+tokens$() =
+  "OTHERWISE", "AND", "DIV", "EOR", "MOD", "OR", "ERROR", "LINE", "OFF",
+  "STEP", "SPC", "TAB(", "ELSE", "THEN", "", "OPENIN", "PTR", "PAGE",
+  "TIME", "LOMEM", "HIMEM", "ABS", "ACS", "ADVAL", "ASC", "ASN", "ATN",
+  "BGET", "COS", "COUNT", "DEG", "ERL", "ERR", "EVAL", "EXP", "EXT",
+  "FALSE", "FN", "GET", "INKEY", "INSTR(", "INT", "LEN", "LN", "LOG",
+  "NOT", "OPENUP", "OPENOUT", "PI", "POINT(", "POS", "RAD", "RND",
+  "SGN", "SIN", "SQR", "TAN", "TO", "TRUE", "USR", "VAL", "VPOS", "CHR$",
+  "GET$", "INKEY$", "LEFT$(", "MID$(", "RIGHT$(", "STR$", "STRING$(", "EOF",
+  "", "", "", "WHEN", "OF", "ENDCASE", "ELSE",
+  "ENDIF", "ENDWHILE", "PTR", "PAGE", "TIME", "LOMEM", "HIMEM", "SOUND",
+  "BPUT", "CALL", "CHAIN", "CLEAR", "CLOSE", "CLG", "CLS", "DATA", "DEF",
+  "DIM", "DRAW", "END", "ENDPROC", "ENVELOPE", "FOR", "GOSUB", "GOTO", "GCOL",
+  "IF", "INPUT", "LET", "LOCAL", "MODE", "MOVE", "NEXT", "ON", "VDU",
+  "PLOT", "PRINT", "PROC", "READ", "REM", "REPEAT", "REPORT", "RESTORE",
+  "RETURN", "RUN", "STOP", "COLOUR", "TRACE", "UNTIL", "WIDTH", "OSCLI"
+
+dim stmt_tokens$(21)
+stmt_tokens$() =
+  "CASE", "CIRCLE", "FILL", "ORIGIN", "PSET", "RECT", "SWAP", "WHILE",
+  "WAIT", "MOUSE", "QUIT", "SYS", "INSTALL", "LIBRARY", "TINT", "ELLIPSE",
+  "BEATS", "TEMPO", "VOICES", "VOICE", "STEREO", "OVERLAY"
+
+dim com_tokens$(17)
+com_tokens$() =
+  "APPEND", "AUTO", "CRUNCH", "DELETE", "EDIT", "HELP", "LIST", "LOAD",
+  "LVAR", "NEW", "OLD", "RENUMBER", "SAVE", "TEXTLOAD", "TEXTSAVE", "TWIN",
+  "TWINO", "INSTALL"
+
+dim cnf_tokens$(1)
+cnf_tokens$() = "SUM", "BEAT"
+
+
+flags@RECflags = FNFlags@RECflags
+if flags@RECflags.version% then
+  print "sb2diff version 1"
+  end
+endif
+
+lines1@REClines := FNReadAndParseFile@REClines(flags@RECflags.left_file$)
+lines2@REClines := FNReadAndParseFile@REClines(flags@RECflags.right_file$)
+res@RECop{} := FNdiff@RECop{}(lines1@REClines.code${},lines2@REClines.code${}, 0, 0)
+res@RECop{} = FNSquashDiffs@RECop{}(res@RECop{})
+PROCdump_diff(lines1@REClines, lines2@REClines, res@RECop{})
+
+def PROCdump_diff(lines1@REClines, lines2@REClines, res@RECop{})
+
+  range ch@RECop := res@RECop{}
+    if ch@RECop.op% = DELETE_CHANGE% then
+      print ch@RECop.old_start% + 1; print ","; print ch@RECop.old_end%;
+      print "d"; print ch@RECop.new_start%
+      range s$, i% := lines1@REClines.code${ch@RECop.old_start%:ch@RECop.old_end%}
+        print "< "; print lines1@REClines.nums%{ch@RECop.old_start%+i%}; print " "; PROCprint_line(s$)
+      endrange
+    else
+      if ch@RECop.op% = INSERT_CHANGE% then
+        print ch@RECop.old_start%; print "a"; print ch@RECop.new_start% + 1; print ",";
+        print ch@RECop.new_end%
+        range s$, i% := lines2@REClines.code${ch@RECop.new_start%:ch@RECop.new_end%}
+          print "> "; print lines2@REClines.nums%{ch@RECop.new_start% + i%}; print " "; PROCprint_line(s$)
+        endrange
+      else
+        start% := ch@RECop.old_start% + 1
+        print start%;
+	if start% < ch@RECop.old_end% then
+	  print ","; print ch@RECop.old_end%;
+	endif
+	print "c";
+	start% = ch@RECop.new_start% + 1
+        print start%;
+	if start% < ch@RECop.new_end% then
+	  print ","; print ch@RECop.new_end%;
+	endif
+	print ""
+
+        range s$, i% := lines1@REClines.code${ch@RECop.old_start%:ch@RECop.old_end%}
+          print "< "; print lines1@REClines.nums%{ch@RECop.old_start%+i%}; print " "; PROCprint_line(s$)
+        endrange
+        print "---"
+        range s$, i% := lines2@REClines.code${ch@RECop.new_start%:ch@RECop.new_end%}
+          print "> "; print lines2@REClines.nums%{ch@RECop.new_start% + i%}; print " "; PROCprint_line(s$)
+        endrange
+      endif
+    endif
+  endrange
+endproc
+
+def PROCprint_line(s$)
+  local strip% = 1
+  l% := len(s$)
+  if right$(s$,2) = chr$(13)+chr$(10) then
+    strip% = 2
+  endif
+  print left$(s$,l% - strip%)
+endproc
+
+def FNdiff@RECop{}(old${}, new${}, i%, j%)
+  local dim r@RECop{}
+  N% := dim(old${}, 1) + 1 
+  M% := dim(new${}, 1) + 1
+  L% := N% + M%
+  Z% := (2 * FNMin%(N%, M%)) + 2
+  if N% > 0 and M% > 0 then
+    w% := N% - M%
+    local dim g%(Z%-1)
+    local dim p%(Z%-1)
+    hlim% := (L% div 2) + (L% and 1)
+    for h% := 0 to hlim%
+      for r% := 0 to 1
+        local c%() = g%()
+	local d%() = p%()
+	local o% = 1
+	local m% = 1
+        if r% <> 0 then
+	    c%() = p%()
+	    d%() = g%()
+	    o% = 0
+	    m% = -1
+	endif
+	start% := -(h%-2*FNMax%(0, h%-M%))
+	end% := h%-2*FNMax%(0, h%-N%)
+	for k% := start% to end% step 2
+	  inc% := false
+	  if k% = -h% then
+	    inc% = true
+	  else
+	    if k% <> h% then
+	      inc% = c%(FNMod%(k%-1,Z%)) < c%(FNMod%(k%+1, Z%))
+	    endif
+	  endif
+	  local a%
+	  if inc% then
+	    a% = c%(FNMod%(k%+1,Z%))
+	  else
+	    a% = c%(FNMod%(k%-1,Z%))+1
+	  endif
+	  b% := a% - k%
+	  s% := a%
+	  t% := b%
+	  loop% := true
+	  while a% < N% and b% < M% and loop%
+	    loop% = old${(1-o%)*N%+m%*a%+(o%-1)} = new${(1-o%)*M%+m%*b%+(o%-1)}
+	    if loop% then
+	        a% += 1
+		b% += 1
+            endif
+	  endwhile
+	  c%(FNMod%(k%, Z%)) = a%
+	  z% := -(k%-w%)
+	  if L% mod 2 = o% then
+	    if z% >= -(h% - o%) then
+	      if z% <= h% - o% then
+	        if c%(FNMod%(k%,Z%)) + d%(FNMod%(z%,Z%)) >= N% then
+		  local D%
+		  local x%
+		  local y%
+		  local u%
+		  local v%
+		  if o% = 1 then
+		    D% = 2 * h% -1
+		    x% = s%
+		    y% = t%
+		    u% = a%
+		    v% = b%
+		  else
+		    D% = 2 * h%
+		    x% = N% - a%
+		    y% = M% - b%
+		    u% = N% - s%
+		    v% = M% - t%
+		  endif
+		  if D% > 1 or (x% <> u% and y% <> v%) then
+		    <- append(FNdiff@RECop{}(old${0:x%}, new${0:y%}, i%, j%),
+		      FNdiff@RECop{}(old${u%:N%}, new${v%:M%}, i% + u%, j% + v%))
+		  else
+		    if M% > N% then
+		      <-FNdiff@RECop{}(old${0:0}, new${N%:M%}, i% + N%, j%+N%)
+		    else
+		      if M% < N% then
+		        <-FNdiff@RECop{}(old${M%:N%}, new${0:0}, i% + M%, j%+M%)
+		      endif
+		    endif
+		  endif
+		endif
+	      endif
+	    endif
+          endif
+	next
+      next
+    next
+  else
+    local a@RECop
+     if N% > 0 then
+       a@RECop = ( DELETE_CHANGE%, i%, i% + N%, j%, j% )
+     else
+       if M% > 0 then
+         a@RECop = ( INSERT_CHANGE%, i%, i%, j%, j% + M% )
+       else
+         <-r@RECop{}
+       endif
+     endif
+     append(r@RECop{}, a@RECop)
+  endif
+<-r@RECop{}
+
+def FNSquashDiffs@RECop{}(a@RECop{})
+  local a_len% = dim(a@RECop{}, 1)
+
+  if a_len% < 0 then
+    <-a@RECop{}
+  endif
+
+  local dim b@RECop{}
+  append(b@RECop{}, a@RECop{0}, 16)
+  range c@RECop := a@RECop{1:}
+    if not FNMergeSingle%(b@RECop{}, c@RECop) then
+      append(b@RECop{}, c@RECop)
+    endif
+  endrange
+<- b@RECop{}
+
+
+def FNMergeSingle%(a@RECop{}, b@RECop)
+
+  local a_len% = dim(a@RECop{}, 1)
+
+  rem merge insertions
+
+  if ((a@RECop{a_len%}.op% = INSERT_CHANGE%) or (a@RECop{a_len%}.op% = CHANGE_CHANGE%)) and
+      (b@RECop.op% = INSERT_CHANGE%) then
+    if a@RECop{a_len%}.new_end% = b@RECop.new_start% then
+       a@RECop{a_len%}.new_end% = b@RECop.new_end%
+       <-true
+    endif
+  endif
+
+  rem merge deletions
+
+  if ((a@RECop{a_len%}.op% = DELETE_CHANGE%) or (a@RECop{a_len%}.op% = CHANGE_CHANGE%)) and
+      (b@RECop.op% = DELETE_CHANGE%) then
+    if a@RECop{a_len%}.old_end%  >= b@RECop.old_start% then
+       a@RECop{a_len%}.old_end% = b@RECop.old_end%
+       <-true
+    endif
+  endif
+
+  rem check for changes
+
+  if (a@RECop{a_len%}.op% = DELETE_CHANGE%) and
+     (b@RECop.op% = INSERT_CHANGE%) then
+     if a@RECop{a_len%}.old_end% = b@RECop.old_start% then
+       a@RECop{a_len%}.op% = CHANGE_CHANGE%
+       a@RECop{a_len%}.new_start% = b@RECop.new_start%
+       a@RECop{a_len%}.new_end% = b@RECop.new_end%
+       <-true
+     endif
+   endif
+
+  if (a@RECop{a_len%}.op% = INSERT_CHANGE%) and
+     (b@RECop.op% = DELETE_CHANGE%) then
+     if a@RECop{a_len%}.old_start% = b@RECop.old_start% then
+	a@RECop{a_len%}.op% = CHANGE_CHANGE%
+        a@RECop{a_len%}.old_end% = b@RECop.old_end%
+	a@RECop{a_len%}.new_end% = b@RECop.new_end%
+        <-true
+    endif
+  endif
+
+
+  if (a@RECop{a_len%}.op% = CHANGE_CHANGE%) and
+     (b@RECop.op% = CHANGE_CHANGE%) then
+    if (a@RECop{a_len%}.old_end% = b@RECop.old_start%) and
+       (a@RECop{a_len%}.new_end% = b@RECop.new_start%) then
+      a@RECop{a_len%}.old_end% = b@RECop.old_end%
+      a@RECop{a_len%}.new_end% = b@RECop.new_end%
+      <-true
+    endif
+  endif
+
+<-false
+
+def FNMod%(a%, b%) <- ((a% mod b%) + b%) mod b%
+
+def FNMax%(a%, b%)
+  if a% < b% then
+      <- b%
+  endif
+<-a%
+
+def FNMin%(a%, b%)
+  if a% > b% then
+      <- b%
+  endif
+<-a%
+
+def FNReadAndParseFile@REClines(fname$)
+  data&{} := FNReadFile&{}(fname$)
+  onerror
+    if err = BAD_BASIC_FILE% then
+      tryone print "Not a valid BASIC file"
+    else
+      tryone print "Unknown error "; print err
+    endif
+  enderror
+<-FNParseFile@REClines(data&{})
+
+def FNParseFile@REClines(data&{})
+  local a@REClines
+  local quit%
+  local i%
+  local len% = dim(data&{}, 1) + 1
+  local gran% = len% div 32
+
+  repeat
+    if len% < 2 then
+      error BAD_BASIC_FILE%
+    endif
+
+    if data&{i%} <> 13 then
+      error BAD_BASIC_FILE%
+    endif
+    i% += 1
+    len% -= 1
+
+    quit% = intz(data&{i%}) = &ff
+    if len% < 3 then
+      error BAD_BASIC_FILE%
+    endif
+    if not quit% then
+      line% := (intz(data&{i%}) << 8) or intz(data&{i%+1})
+      i% += 2
+      linelen% := (intz(data&{i%}) - 3)
+      if len% < linelen% then
+        error BAD_BASIC_FILE%
+      endif
+      decoded$ := FNDecodeLine$(data&{i% + 1: i% + 1 + linelen%})
+      append(a@REClines.nums%{}, line%, gran%)
+      append(a@REClines.code${}, decoded$, gran%)
+      gran% = 1
+      i% += linelen%
+      len% -= linelen%
+    endif
+  until quit%
+<-a@REClines
+
+def FNDecodeLine$(data&{})
+  local s$
+  local i%
+
+  while i% <= dim(data&{}, 1)
+    tok% := intz(data&{i%})
+    if tok% < 128 then
+      s$ += chr$(tok%)
+    else
+      if tok% >= &c6 and tok% <= &c8 then
+        if i% = dim(data&{}, 1) then
+          error BAD_BASIC_FILE%
+        endif
+        tarray$() :=  tokens$()
+        nexttok% := intz(data&{i%+1}) - &8e
+        if tok% = &c8 then
+          s$ += stmt_tokens$(nexttok%)
+        else
+          if tok% = &c7 then
+            s$ += com_tokens$(nexttok%)
+          else
+            s$ += cnf_tokens$(nexttok%)
+          endif
+        endif
+        s$ += " "
+        i% += 1
+      else
+        if tok% = &8d then
+          if i% + 3 >= dim(data&{}, 1) then
+            error BAD_BASIC_FILE%
+          endif
+          s$ += FNParseLineNo$(intz(data&{i%+1}), intz(data&{i%+2}),
+                  intz(data&{i%+3}))
+          i% += 3
+        else
+          s$ += tokens$(tok% - 127)
+        endif
+      endif
+    endif
+    i% += 1
+  endwhile
+<-s$
+
+def FNParseLineNo$(a%, b%, c%)
+  a% = (a%*4) and &ff
+  b% = b% eor (a% and &c0)
+  a% = (a% * 4) and &ff
+  c% = c% eor a%
+<-str$((c% * 256) + b%)
+
+def FNReadFile&{}(fname$)
+  local f%
+  err% := tryone f% = openin(fname$)
+  if err% then
+    print "unable to open "; print fname$
+    error err%
+  endif
+
+  onerror
+    try
+      print "unable to read from "; print fname$
+    endtry
+    tryone close# f%
+  enderror
+  len% := ext#(f%)
+  local dim a&{len% - 1}
+  read% := get#(f%, a&{})
+  tryone close# f%
+<- a&{}
+
+
+type FNComp%(a&)
+
+def FNSkip%(a&(1), start%, l%, cmp@FNComp)
+  stop% := false
+  repeat
+    if start% < l% then
+      stop% = cmp@FNComp(a&(start%))
+      if not stop% then
+        start% += 1
+      endif
+    else
+      stop% = true
+    endif
+  until stop%
+<-start%
+
+def FNSkipWhite%(a&(1), start%, l%)
+<-FNSkip%(a&(), start%, l%, def FN%(a&) <- a& <> asc(" "))
+
+def FNSkipNonWhite%(a&(1), start%, l%)
+<-FNSkip%(a&(), start%, l%, def FN%(a&) <- a& = asc(" "))
+
+def FNFlags@RECflags
+    local f@RECflags
+
+    args${} := FNGetArgs${}
+
+    rem let's read the options
+
+    local dim fnames${}
+
+    range s$ := args${1:}
+      if s$ = "-v" then
+        f@RECflags.version% = true
+      else
+        append(fnames${}, s$)
+      endif
+    endrange
+
+    if f@RECflags.version% then
+      <-f@RECflags
+    endif
+
+    if dim(fnames${}, 1) <> 1 then
+      print "usage: left right"
+      print "usage: -v (version)"
+      error 1000
+    endif
+
+    f@RECflags.left_file$ = fnames${0}
+    f@RECflags.right_file$ = fnames${1}
+<-f@RECflags
+
+def FNGetArgs${}
+  local dim args${}
+
+  list$ := osargs$
+  l% := len(list$)
+  if l% = 0 then
+    <-args${}
+  endif
+
+  local dim a&(l% - 1)
+  copy(a&(), list$)
+
+  end% := 0
+  start% := 0
+  while start% < l%
+    start% = FNSkipWhite%(a&(), start%, l%)
+    end% = FNSkipNonWhite%(a&(), start%, l%)
+    if start% = end% then
+      start% = l%
+    else
+      append(args${}, mid$(list$,start%+1,end%-start%))
+      start% = end% + 1
+    endif
+  endwhile
+
+<-args${}
