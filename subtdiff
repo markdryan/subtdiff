@@ -332,14 +332,14 @@ def FNFillBuffer${}(lines${}, buffer&(1))
     if existing% then
       lines${veclen%} += s$
     else
-      append(lines${}, s$)
+      append(lines${}, s$, 64)
     endif
 
     start% := len(s$)
     limit% -= start%
     while limit% > 0
       s$ = FNGetLine$(buffer&(start%:))
-      append(lines${}, s$)
+      append(lines${}, s$, 64)
       limit% -= len(s$)
       start% += len(s$)
     endwhile
